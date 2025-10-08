@@ -2262,9 +2262,12 @@ function updateHoverPanelContent(node, term) {
     // Create a nice description using the correct schema path
     let description = '';
     if (term.definition) {
-    description = term.definition.length > 120 ? 
-        term.definition.substring(0, 120) + '...' : 
-        term.definition;
+    // Remove unwanted unicode characters like '\u0022A' from the beginning
+    let cleanedDefinition = term.definition.replace(/^\\u0022A/, '');
+    
+    description = cleanedDefinition.length > 120 ? 
+        cleanedDefinition.substring(0, 120) + '...' : 
+        cleanedDefinition;
     } else {
     description = 'No description available';
     }
