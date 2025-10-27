@@ -2686,6 +2686,53 @@ canvas.addEventListener("mouseleave", () => {
     focusAnimationStartTime = null;
 });
 
+// Resolve overlaps for a clicked node by pushing overlapping nodes away
+function resolveNodeOverlaps(clickedNodeId) {
+    const clickedNode = nodes[clickedNodeId];
+    if (!clickedNode) return;
+
+    const BASE_RADIUS = 53;
+    const MARGIN = 10; // Small margin between node borders
+    const minDistance = (BASE_RADIUS * 2) + MARGIN;
+
+    const movements = {};
+
+    // Check all other visible nodes for overlaps
+    for (const otherId in nodes) {
+        if (otherId === clickedNodeId) continue;
+
+        const otherNode = nodes[otherId];
+        if (!otherNode.visible) continue;
+
+        // Calculate distance between centers
+        const dx = otherNode.x - clickedNode.x;
+        const dy = otherNode.y - clickedNode.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        // Check if overlapping (with margin)
+        if (distance < minDistance && distance > 0) {
+            // Calculate minimal push distance needed
+            const pushDistance = minDistance - distance;
+
+            // Calculate push direction (away from clicked node)
+            const angle = Math.atan2(dy, dx);
+            const pushX = Math.cos(angle) * pushDistance;
+            const pushY = Math.sin(angle) * pushDistance;
+
+            // Store the new position for this node
+            movements[otherId] = {
+                x: otherNode.x + pushX,
+                y: otherNode.y + pushY
+            };
+        }
+    }
+
+    // Apply movements with smooth animation if any overlaps were found
+    if (Object.keys(movements).length > 0) {
+        animateNodes(movements, 300); // 300ms animation
+    }
+}
+
 canvas.addEventListener("mouseup", (e) => {
     // Check for arrow clicks FIRST, before checking node clicks
     const rect = canvas.getBoundingClientRect();
@@ -2726,8 +2773,11 @@ canvas.addEventListener("mouseup", (e) => {
         toggleNode(draggedNode.id);
         showTermDetails(draggedNode.id);
     }
+    } else if (draggedNode && isDraggingNode) {
+    // Node was dragged and dropped - check for overlaps and push overlapping nodes away
+    resolveNodeOverlaps(draggedNode.id);
     }
-    
+
     // Reset all drag states
     isDragging = false;
     isDraggingNode = false;
@@ -2735,7 +2785,7 @@ canvas.addEventListener("mouseup", (e) => {
     dragStartTime = 0;
     lastNodeX = 0;
     lastNodeY = 0;
-    
+
     // Reset cursor
     canvas.className = "infinite-canvas";
 });
