@@ -31,6 +31,7 @@ if (!ctx.roundRect) {
 }
 
 let nodes = {}; // Map from GO ID to { x, y, lbl, children: [GO ID], parent, relation_type, currentPage, totalPages, allChildren }
+let strainPagination = {}; // Track current page for strain data per GO term: { goTermId: { currentPage, totalPages, total } }
 let panX = 0;
 let panY = 0;
 let zoomLevel = 1;
@@ -2360,22 +2361,46 @@ function showTermDetails(id) {
     termInfo.innerHTML += `<p class="text-red-500 text-xs">Error loading details</p>`;
     });
 
-    // Fetch strain data from separate endpoint
+    // Initialize pagination state for this GO term if not exists
+    if (!strainPagination[id]) {
+        strainPagination[id] = { currentPage: 1, totalPages: 1, total: 0 };
+    }
+
+    // Load strains for current page
+    loadStrains(id, strainPagination[id].currentPage);
+}
+
+// Load strains with pagination
+function loadStrains(goTermId, page = 1) {
+    const strainList = document.getElementById('strainList');
+    const paginationContainer = document.getElementById('strain-pagination');
+
     strainList.innerHTML = '<li class="text-gray-500">Loading strains...</li>';
-    fetch(`${apiUrl}/go/getMmrrcStrains/${encodeURIComponent(id)}`)
-    .then(response => response.ok ? response.json() : [])
-    .then(strains => {
+    paginationContainer.innerHTML = '';
+
+    fetch(`${apiUrl}/go/getMmrrcStrains/${encodeURIComponent(goTermId)}?page=${page}`)
+    .then(response => response.ok ? response.json() : { items: [], page: 1, per_page: 25, total: 0 })
+    .then(data => {
+        const strains = data.items || [];
+        const currentPage = data.page || 1;
+        const perPage = data.per_page || 25;
+        const total = data.total || 0;
+        const totalPages = Math.ceil(total / perPage);
+
+        // Update pagination state
+        strainPagination[goTermId] = { currentPage, totalPages, total };
+
         if (strains.length > 0) {
             // Filter and group strains by blacklist status
             const { visibleStrains, hiddenStrainsByCollection } = filterAndGroupStrains(strains);
-            
+
             let html = '';
-            
+
             // Display visible strains first
             if (visibleStrains.length > 0) {
-                html += visibleStrains.map((strain, index) => 
+                html += visibleStrains.map((strain, index) =>
                     `<li class="my-2 px-2 py-1 rounded ${index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}">
-                    <a href="https://www.mmrrc.org/catalog/sds.php?mmrrc_id=${strain.mmrrc_id}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline block leading-tight">
+                    <a href="${strain.url || `https://www.mmrrc.org/catalog/sds.php?mmrrc_id=${strain.mmrrc_id}`}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline block leading-tight">
                         ${strain.strain_name}
                     </a>
                     <div class="text-xs text-gray-500 leading-tight" style="font-size: 8px;">
@@ -2384,25 +2409,25 @@ function showTermDetails(id) {
                     </li>`
                 ).join('');
             }
-            
+
             // Add hidden strains sections grouped by collection
             const collectionNames = Object.keys(hiddenStrainsByCollection);
             if (collectionNames.length > 0) {
                 html += `<li class="mt-4 pt-2 border-t border-gray-200">`;
-                
+
                 collectionNames.forEach(collection => {
                     const collectionStrains = hiddenStrainsByCollection[collection];
                     const collectionId = collection.replace(/\s+/g, '-').toLowerCase();
-                    
+
                     html += `
                         <div class="mb-3">
-                            <button id="toggle-collection-${collectionId}-${id}" class="text-sm text-gray-600 hover:text-blue-600 cursor-pointer underline">
+                            <button id="toggle-collection-${collectionId}-${goTermId}" class="text-sm text-gray-600 hover:text-blue-600 cursor-pointer underline">
                                 Show ${collectionStrains.length} ${collection}
                             </button>
-                            <ul id="collection-strains-${collectionId}-${id}" class="mt-2 hidden">
-                                ${collectionStrains.map(strain => 
+                            <ul id="collection-strains-${collectionId}-${goTermId}" class="mt-2 hidden">
+                                ${collectionStrains.map(strain =>
                                     `<li class="my-2 px-2 py-1 rounded bg-red-50 border-l-2 border-red-200">
-                                    <a href="https://www.mmrrc.org/catalog/sds.php?mmrrc_id=${strain.mmrrc_id}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline block leading-tight">
+                                    <a href="${strain.url || `https://www.mmrrc.org/catalog/sds.php?mmrrc_id=${strain.mmrrc_id}`}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline block leading-tight">
                                         ${strain.strain_name}
                                     </a>
                                     <div class="text-xs text-gray-500 leading-tight" style="font-size: 8px;">
@@ -2414,41 +2439,91 @@ function showTermDetails(id) {
                         </div>
                     `;
                 });
-                
+
                 html += `</li>`;
             }
-            
+
             strainList.innerHTML = html;
-            
+
             // Add toggle functionality for each collection
             collectionNames.forEach(collection => {
                 const collectionStrains = hiddenStrainsByCollection[collection];
                 const collectionId = collection.replace(/\s+/g, '-').toLowerCase();
-                
-                const toggleButton = document.getElementById(`toggle-collection-${collectionId}-${id}`);
-                const strainsContainer = document.getElementById(`collection-strains-${collectionId}-${id}`);
+
+                const toggleButton = document.getElementById(`toggle-collection-${collectionId}-${goTermId}`);
+                const strainsContainer = document.getElementById(`collection-strains-${collectionId}-${goTermId}`);
                 let isVisible = false;
-                
-                toggleButton.addEventListener('click', () => {
-                    isVisible = !isVisible;
-                    if (isVisible) {
-                        strainsContainer.classList.remove('hidden');
-                        toggleButton.textContent = `Hide ${collectionStrains.length} ${collection}`;
-                    } else {
-                        strainsContainer.classList.add('hidden');
-                        toggleButton.textContent = `Show ${collectionStrains.length} ${collection}`;
-                    }
-                });
+
+                if (toggleButton && strainsContainer) {
+                    toggleButton.addEventListener('click', () => {
+                        isVisible = !isVisible;
+                        if (isVisible) {
+                            strainsContainer.classList.remove('hidden');
+                            toggleButton.textContent = `Hide ${collectionStrains.length} ${collection}`;
+                        } else {
+                            strainsContainer.classList.add('hidden');
+                            toggleButton.textContent = `Show ${collectionStrains.length} ${collection}`;
+                        }
+                    });
+                }
             });
-            
+
+            // Render pagination controls
+            renderStrainPagination(goTermId, currentPage, totalPages, total);
+
         } else {
             strainList.innerHTML = '<li class="text-gray-500">No linked strains found</li>';
+            paginationContainer.innerHTML = '';
         }
     })
     .catch(error => {
         console.error('Error loading strain data:', error);
         strainList.innerHTML = '<li class="text-red-500">Error loading strains</li>';
+        paginationContainer.innerHTML = '';
     });
+}
+
+// Render pagination controls for strains
+function renderStrainPagination(goTermId, currentPage, totalPages, total) {
+    const paginationContainer = document.getElementById('strain-pagination');
+
+    if (totalPages <= 1) {
+        paginationContainer.innerHTML = '';
+        return;
+    }
+
+    let html = '';
+
+    // Previous button
+    html += `
+        <button
+            class="px-3 py-1 rounded ${currentPage === 1 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-600'}"
+            ${currentPage === 1 ? 'disabled' : ''}
+            onclick="loadStrains('${goTermId}', ${currentPage - 1})"
+        >
+            ←
+        </button>
+    `;
+
+    // Page info
+    html += `
+        <span class="text-sm text-gray-600">
+            Page ${currentPage} of ${totalPages} (${total} total)
+        </span>
+    `;
+
+    // Next button
+    html += `
+        <button
+            class="px-3 py-1 rounded ${currentPage === totalPages ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-600'}"
+            ${currentPage === totalPages ? 'disabled' : ''}
+            onclick="loadStrains('${goTermId}', ${currentPage + 1})"
+        >
+            →
+        </button>
+    `;
+
+    paginationContainer.innerHTML = html;
 }
 
 // Pan the canvas
