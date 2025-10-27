@@ -620,11 +620,12 @@ async function calculatePushMovementsAsync(expandedNodeId, newChildrenPositions,
 }
 
 const colorsByrelation_type = {
-    "is_a": "#3490dc", //blue 
+    "is_a": "#3490dc", //blue
     "part_of": "#38c172", // 'part of' is a teal-green line
     "positively_regulates": "#ffed4a", // 'postively regulates' is a yellow line
-    "negatively_regulates": "#8b0000", // 'negatively regulates' is a dark red line 
-    "regulates": "#1a237e" // 'regulates' is a dark blue/navy line
+    "negatively_regulates": "#8b0000", // 'negatively regulates' is a dark red line
+    "regulates": "#1a237e", // 'regulates' is a dark blue/navy line
+    "default": "#999999" // default gray for unknown relation types
 };
 
 // Family colors for glassmorphism effect
@@ -2340,8 +2341,7 @@ canvas.addEventListener("click", async (e) => {
 function showTermDetails(id) {
     const node = nodes[id];
     const termInfo = document.getElementById("term-info");
-    const strainList = document.getElementById("strainList");
-    
+
     termInfo.innerHTML = `
     <h3 class="font-semibold">${node.name}</h3>
     <p class="text-sm text-gray-600">${id}</p>
