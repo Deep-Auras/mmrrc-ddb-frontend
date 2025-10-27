@@ -2372,6 +2372,9 @@ function showTermDetails(id) {
 
 // Load strains with pagination
 function loadStrains(goTermId, page = 1) {
+    // Convert page to number to prevent string concatenation bugs
+    page = Number(page);
+
     const strainList = document.getElementById('strainList');
     const paginationContainer = document.getElementById('strain-pagination');
 
@@ -2382,9 +2385,9 @@ function loadStrains(goTermId, page = 1) {
     .then(response => response.ok ? response.json() : { items: [], page: 1, per_page: 25, total: 0 })
     .then(data => {
         const strains = data.items || [];
-        const currentPage = data.page || 1;
-        const perPage = data.per_page || 25;
-        const total = data.total || 0;
+        const currentPage = Number(data.page) || 1;
+        const perPage = Number(data.per_page) || 25;
+        const total = Number(data.total) || 0;
         const totalPages = Math.ceil(total / perPage);
 
         // Update pagination state
@@ -2487,10 +2490,19 @@ function loadStrains(goTermId, page = 1) {
 function renderStrainPagination(goTermId, currentPage, totalPages, total) {
     const paginationContainer = document.getElementById('strain-pagination');
 
+    // Ensure all values are numbers
+    currentPage = Number(currentPage);
+    totalPages = Number(totalPages);
+    total = Number(total);
+
     if (totalPages <= 1) {
         paginationContainer.innerHTML = '';
         return;
     }
+
+    // Calculate prev and next pages
+    const prevPage = currentPage - 1;
+    const nextPage = currentPage + 1;
 
     let html = '';
 
@@ -2499,7 +2511,7 @@ function renderStrainPagination(goTermId, currentPage, totalPages, total) {
         <button
             class="px-3 py-1 rounded ${currentPage === 1 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-600'}"
             ${currentPage === 1 ? 'disabled' : ''}
-            onclick="loadStrains('${goTermId}', ${currentPage - 1})"
+            onclick="loadStrains('${goTermId}', ${prevPage})"
         >
             ←
         </button>
@@ -2517,7 +2529,7 @@ function renderStrainPagination(goTermId, currentPage, totalPages, total) {
         <button
             class="px-3 py-1 rounded ${currentPage === totalPages ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-600'}"
             ${currentPage === totalPages ? 'disabled' : ''}
-            onclick="loadStrains('${goTermId}', ${currentPage + 1})"
+            onclick="loadStrains('${goTermId}', ${nextPage})"
         >
             →
         </button>
@@ -2811,6 +2823,170 @@ async function init() {
     console.log("Optimized mind map initialization complete");
 }
 
+// Reset zoom to initial state (keeps center stable)
+function resetZoom() {
+    if (zoomLevel === 1) {
+        return;
+    }
+
+    // Get the WRAPPER dimensions (the actual visible area)
+    const wrapper = document.getElementById('canvas-wrapper');
+    const displayWidth = wrapper ? wrapper.clientWidth : canvas.clientWidth;
+    const displayHeight = wrapper ? wrapper.clientHeight : canvas.clientHeight;
+
+    const centerScreenX = displayWidth / 2;
+    const centerScreenY = displayHeight / 2;
+
+    let pivotWorldX, pivotWorldY;
+
+    // When zoomed OUT, pivot around visible nodes center (not viewport center which may be empty space)
+    if (zoomLevel < 1) {
+        const viewportLeft = -panX / zoomLevel;
+        const viewportRight = (displayWidth - panX) / zoomLevel;
+        const viewportTop = -panY / zoomLevel;
+        const viewportBottom = (displayHeight - panY) / zoomLevel;
+
+        const nodesInView = Object.values(nodes).filter(node =>
+            node.visible &&
+            node.x >= viewportLeft && node.x <= viewportRight &&
+            node.y >= viewportTop && node.y <= viewportBottom
+        );
+
+        if (nodesInView.length > 0) {
+            // Calculate bounding box of visible nodes
+            const minX = Math.min(...nodesInView.map(n => n.x));
+            const maxX = Math.max(...nodesInView.map(n => n.x));
+            const minY = Math.min(...nodesInView.map(n => n.y));
+            const maxY = Math.max(...nodesInView.map(n => n.y));
+
+            // Use center of bounding box as pivot
+            pivotWorldX = (minX + maxX) / 2;
+            pivotWorldY = (minY + maxY) / 2;
+        } else {
+            // Fallback to viewport center
+            pivotWorldX = (centerScreenX - panX) / zoomLevel;
+            pivotWorldY = (centerScreenY - panY) / zoomLevel;
+        }
+    } else {
+        // When zoomed IN, pivot around viewport center
+        pivotWorldX = (centerScreenX - panX) / zoomLevel;
+        pivotWorldY = (centerScreenY - panY) / zoomLevel;
+    }
+
+    zoomLevel = 1;
+
+    // Adjust pan to keep pivot point at screen center
+    panX = centerScreenX - pivotWorldX;
+    panY = centerScreenY - pivotWorldY;
+
+    redrawCanvas();
+}
+
+// Reset map to initial state
+async function resetMap() {
+    console.log("Resetting map to initial state...");
+
+    // Stop all animations
+    if (animationFrame) {
+        cancelAnimationFrame(animationFrame);
+        animationFrame = null;
+    }
+    if (shrinkingAnimationId) {
+        cancelAnimationFrame(shrinkingAnimationId);
+        shrinkingAnimationId = null;
+    }
+    if (focusAnimationId) {
+        cancelAnimationFrame(focusAnimationId);
+        focusAnimationId = null;
+    }
+    if (rippleAnimationId) {
+        cancelAnimationFrame(rippleAnimationId);
+        rippleAnimationId = null;
+    }
+    if (renderFrame) {
+        cancelAnimationFrame(renderFrame);
+        renderFrame = null;
+    }
+
+    // Clear animation states
+    isAnimating = false;
+    shrinkingNodes.clear();
+    focusMode = false;
+    focusedNodeId = null;
+    focusedRelationships.clear();
+    focusResetTimer = null;
+    focusAnimationStartTime = null;
+    focusTransitioning = false;
+    ripples = [];
+    needsRedraw = false;
+
+    // Reset processing state
+    isProcessing = false;
+
+    // Clear nodes (will be repopulated)
+    nodes = {};
+
+    // Reset strain pagination
+    strainPagination = {};
+
+    // Reset pan and zoom
+    panX = 0;
+    panY = 0;
+    zoomLevel = 1;
+
+    // Clear details panel
+    const termInfo = document.getElementById("term-info");
+    const strainList = document.getElementById("strainList");
+    const paginationContainer = document.getElementById("strain-pagination");
+
+    if (termInfo) {
+        termInfo.innerHTML = '<p class="text-gray-600">Click a term to see details</p>';
+    }
+    if (strainList) {
+        strainList.innerHTML = '';
+    }
+    if (paginationContainer) {
+        paginationContainer.innerHTML = '';
+    }
+
+    // Re-initialize root nodes
+    const positions = [
+        { x: 220, y: 150 },   // Top-left
+        { x: 670, y: 200 },   // Top-right
+        { x: 420, y: 360 }    // Bottom-center
+    ];
+
+    for (let i = 0; i < ROOT_TERMS.length; i++) {
+        const rootId = ROOT_TERMS[i];
+        const term = await fetchGOTerm(rootId);
+
+        if (term) {
+            const node = {
+                id: rootId,
+                name: term.name || rootId,
+                x: positions[i].x,
+                y: positions[i].y,
+                parent: null,
+                relation_type: null,
+                children: [],
+                childrenLoaded: false,
+                visible: true,
+                hasChildren: true,
+                currentPage: 1,
+                totalPages: 1,
+                allChildren: [],
+                childrenData: []
+            };
+
+            nodes[rootId] = node;
+        }
+    }
+
+    // Redraw canvas
+    redrawCanvas();
+    console.log("Map reset complete");
+}
+
 // Cleanup function
 function cleanup() {
     if (layoutWorker) {
@@ -2858,3 +3034,20 @@ window.addEventListener('beforeunload', cleanup);
 
 // Start when page loads
 document.addEventListener('DOMContentLoaded', init);
+
+// Add reset button event listeners
+document.addEventListener('DOMContentLoaded', () => {
+    const resetZoomBtn = document.getElementById('reset-zoom-btn');
+    if (resetZoomBtn) {
+        resetZoomBtn.addEventListener('click', () => {
+            resetZoom();
+        });
+    }
+
+    const resetMapBtn = document.getElementById('reset-map-btn');
+    if (resetMapBtn) {
+        resetMapBtn.addEventListener('click', () => {
+            resetMap();
+        });
+    }
+});
