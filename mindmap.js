@@ -2629,17 +2629,18 @@ canvas.addEventListener("mousemove", (e) => {
     // Calculate movement delta in world coordinates
     const deltaX = e.clientX - lastX;
     const deltaY = e.clientY - lastY;
-    
+
     const worldDeltaX = deltaX / zoomLevel;
     const worldDeltaY = deltaY / zoomLevel;
-    
+
     // Move the dragged node and all its descendants
     moveNodeAndDescendants(draggedNode, worldDeltaX, worldDeltaY);
-    
+
     lastX = e.clientX;
     lastY = e.clientY;
-    
-    requestRedraw();
+
+    // Direct redraw for smooth drag without debouncing
+    redrawCanvas();
     return;
     }
 
